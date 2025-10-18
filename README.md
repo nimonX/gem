@@ -2,4 +2,4 @@ chat with gemini.
 
 go to : https://nimonx.github.io/gem/
 
-get your api key from : [https://aistudio.google.com/](https://aistudio.google.com/app/apikey)
+get your api key from : https://aistudio.google.com/app/apikey
