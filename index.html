@@ -5,7 +5,7 @@
 <title>Gemini AI</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<!-- Markdown + Highlight.js -->
+<!-- Markdown & Syntax Highlighting -->
 <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.0.0/dist/markdown-it.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css">
@@ -64,29 +64,31 @@ const clearBtn = document.getElementById('clearBtn');
 let controller = null;
 let history = [];
 
-// --- Markdown renderer with syntax highlighting ---
+/* ---------- Markdown-It setup (safe wrapper) ---------- */
 const md = window.markdownit({
   html: false,
   linkify: true,
   breaks: true,
-  highlight: function (str, lang) {
-    if (lang && hljs.getLanguage(lang)) {
+  highlight: (code, lang) => {
+    // highlight.js might not exist yet — guard it
+    if (typeof window.hljs !== "undefined" && lang && hljs.getLanguage(lang)) {
       try {
-        return '<pre class="hljs"><code>' +
-          hljs.highlight(str, { language: lang, ignoreIllegals: true }).value +
-          '</code></pre>';
-      } catch (_) {}
+        const highlighted = hljs.highlight(code, { language: lang, ignoreIllegals: true }).value;
+        return `<pre class="hljs"><code>${highlighted}</code></pre>`;
+      } catch (err) { /* fallback below */ }
     }
-    return '<pre class="hljs"><code>' + md.utils.escapeHtml(str) + '</code></pre>';
+    // fallback: escaped plain code
+    return `<pre class="hljs"><code>${md.utils.escapeHtml(code)}</code></pre>`;
   }
 });
 
+/* ---------- UI helpers ---------- */
 function addMessage(role, text) {
   const div = document.createElement('div');
   div.className = role === 'user' ? 'user' : 'model';
   const meta = document.createElement('div');
   meta.className = 'meta';
-  meta.textContent = (role==='user'?'You':'Gemini');
+  meta.textContent = role === 'user' ? 'You' : 'Gemini';
   div.appendChild(meta);
   const body = document.createElement('div');
   body.className = 'body';
@@ -97,82 +99,86 @@ function addMessage(role, text) {
   return body;
 }
 
+/* ---------- Gemini streaming ---------- */
 async function streamGemini(apiKey, contents, onChunk) {
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse';
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse";
   controller = new AbortController();
-  const resp = await fetch(url + '&key=' + encodeURIComponent(apiKey), {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({contents}),
+  const resp = await fetch(url + "&key=" + encodeURIComponent(apiKey), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ contents }),
     signal: controller.signal
   });
-  if(!resp.ok) throw new Error(await resp.text());
+  if (!resp.ok) throw new Error(await resp.text());
+
   const reader = resp.body.getReader();
-  const decoder = new TextDecoder('utf-8');
-  let buffer = '';
-  while(true){
-    const {done,value} = await reader.read();
-    if(done) break;
-    buffer += decoder.decode(value, {stream:true});
-    const lines = buffer.split('\n');
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
     buffer = lines.pop();
-    for(const line of lines){
-      if(!line.trim().startsWith('data:')) continue;
-      const json = line.replace(/^data:\s*/,'');
-      if(json==='[DONE]') return;
-      try{
+    for (const line of lines) {
+      if (!line.trim().startsWith("data:")) continue;
+      const json = line.replace(/^data:\s*/, "");
+      if (json === "[DONE]") return;
+      try {
         const data = JSON.parse(json);
         const parts = data.candidates?.[0]?.content?.parts;
-        if(parts) for(const p of parts){
-          if(p.text) onChunk(p.text);
-        }
-      }catch(e){/* ignore partial */}
+        if (parts) for (const p of parts) if (p.text) onChunk(p.text);
+      } catch { /* ignore partial JSON */ }
     }
   }
 }
 
+/* ---------- Send & handle streaming ---------- */
 async function sendMessage() {
   const apiKey = apiKeyEl.value.trim();
-  if(!apiKey){alert('Enter your Gemini API key'); return;}
+  if (!apiKey) { alert("Enter your Gemini API key"); return; }
   const text = inputEl.value.trim();
-  if(!text) return;
+  if (!text) return;
 
-  const userBody = addMessage('user', text);
-  history.push({role:'user',parts:[{text}]});
-  inputEl.value = '';
+  addMessage("user", text);
+  history.push({ role: "user", parts: [{ text }] });
+  inputEl.value = "";
 
-  const modelBody = addMessage('model','');
-  let full = '';
+  const modelBody = addMessage("model", "");
+  let full = "";
   sendBtn.disabled = true;
   stopBtn.disabled = false;
 
-  try{
-    await streamGemini(apiKey, history, chunk=>{
+  try {
+    await streamGemini(apiKey, history, chunk => {
       full += chunk;
-      modelBody.textContent = full; // plain text while streaming
+      modelBody.textContent = full; // plain text during stream
       chatEl.scrollTop = chatEl.scrollHeight;
     });
-    modelBody.innerHTML = md.render(full); // full markdown render after stream
-    history.push({role:'model',parts:[{text:full}]});
-  }catch(err){
-    modelBody.textContent = '[Error] ' + err.message;
-  }finally{
+    modelBody.innerHTML = md.render(full); // final Markdown render
+    history.push({ role: "model", parts: [{ text: full }] });
+  } catch (err) {
+    modelBody.textContent = "[Error] " + err.message;
+  } finally {
     sendBtn.disabled = false;
     stopBtn.disabled = true;
     controller = null;
   }
 }
 
-function stopStream(){
-  if(controller){ controller.abort(); controller=null; }
-  stopBtn.disabled = true; sendBtn.disabled = false;
+/* ---------- Controls ---------- */
+function stopStream() {
+  if (controller) controller.abort();
+  controller = null;
+  stopBtn.disabled = true;
+  sendBtn.disabled = false;
 }
 
 sendBtn.onclick = sendMessage;
 stopBtn.onclick = stopStream;
-clearBtn.onclick = ()=>{ history=[]; chatEl.innerHTML=''; };
-inputEl.addEventListener('keydown',e=>{
-  if(e.key==='Enter'&&!e.shiftKey){
+clearBtn.onclick = () => { history = []; chatEl.innerHTML = ""; };
+inputEl.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
     sendMessage();
   }
