@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GemSmart Stream (Browser-only)</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+body {
+  font-family: system-ui, sans-serif;
+  background:#0d1117; color:#e6edf3; margin:0; padding:0;
+  display:flex; flex-direction:column; align-items:center;
+}
+#app { max-width:800px; width:100%; padding:20px; }
+textarea { width:100%; background:#161b22; color:#e6edf3;
+  border:1px solid #30363d; border-radius:8px; padding:10px; resize:vertical; }
+button { background:#238636; border:none; color:#fff; padding:8px 12px;
+  border-radius:6px; cursor:pointer; }
+button:disabled{opacity:0.5;cursor:not-allowed}
+#chat { background:#0d1117; border:1px solid #30363d; border-radius:8px;
+  padding:10px; height:60vh; overflow-y:auto; margin-top:10px; }
+.user,.model { padding:8px 10px; border-radius:6px; margin-bottom:8px; max-width:90%; }
+.user { background:#1c2c3a; align-self:flex-end; }
+.model { background:#161b22; }
+.meta { font-size:12px; color:#8b949e; margin-bottom:4px; }
+#apiKey { width:300px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <h2>GemSmart Stream (Browser)</h2>
+  <div style="margin-bottom:10px">
+    <input id="apiKey" type="password" placeholder="Enter Gemini API key">
+    <button id="clearBtn">Clear Chat</button>
+  </div>
+  <div id="chat"></div>
+  <textarea id="input" rows="3" placeholder="Type your message..."></textarea>
+  <div style="margin-top:10px">
+    <button id="sendBtn">Send</button>
+    <button id="stopBtn" disabled>Stop</button>
+  </div>
+</div>
+
+<script>
+const chatEl = document.getElementById('chat');
+const inputEl = document.getElementById('input');
+const sendBtn = document.getElementById('sendBtn');
+const stopBtn = document.getElementById('stopBtn');
+const apiKeyEl = document.getElementById('apiKey');
+const clearBtn = document.getElementById('clearBtn');
+
+let controller = null;
+let history = [];
+
+function addMessage(role, text) {
+  const div = document.createElement('div');
+  div.className = role === 'user' ? 'user' : 'model';
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  meta.textContent = (role==='user'?'You':'Gemini');
+  div.appendChild(meta);
+  const body = document.createElement('div');
+  body.className = 'body';
+  body.innerHTML = marked.parse(text || '');
+  div.appendChild(body);
+  chatEl.appendChild(div);
+  chatEl.scrollTop = chatEl.scrollHeight;
+  return body;
+}
+
+async function streamGemini(apiKey, contents, onChunk) {
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse';
+  controller = new AbortController();
+  const resp = await fetch(url + '&key=' + encodeURIComponent(apiKey), {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({contents}),
+    signal: controller.signal
+  });
+  if(!resp.ok) throw new Error(await resp.text());
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  while(true){
+    const {done,value} = await reader.read();
+    if(done) break;
+    buffer += decoder.decode(value, {stream:true});
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
+    for(const line of lines){
+      if(!line.trim().startsWith('data:')) continue;
+      const json = line.replace(/^data:\s*/,'');
+      if(json==='[DONE]') return;
+      try{
+        const data = JSON.parse(json);
+        const parts = data.candidates?.[0]?.content?.parts;
+        if(parts) for(const p of parts){
+          if(p.text) onChunk(p.text);
+        }
+      }catch(e){/* ignore partial */}
+    }
+  }
+}
+
+async function sendMessage() {
+  const apiKey = apiKeyEl.value.trim();
+  if(!apiKey){alert('Enter your Gemini API key'); return;}
+  const text = inputEl.value.trim();
+  if(!text) return;
+  const userBody = addMessage('user', text);
+  history.push({role:'user',parts:[{text}]});
+  inputEl.value = '';
+  const modelBody = addMessage('model','');
+  let full = '';
+  sendBtn.disabled = true;
+  stopBtn.disabled = false;
+  try{
+    await streamGemini(apiKey, history, chunk=>{
+      full += chunk;
+      modelBody.textContent = full; // faster than rerendering markdown every token
+      chatEl.scrollTop = chatEl.scrollHeight;
+    });
+    modelBody.innerHTML = marked.parse(full);
+    history.push({role:'model',parts:[{text:full}]});
+  }catch(err){
+    modelBody.textContent = '[Error] ' + err.message;
+  }finally{
+    sendBtn.disabled = false;
+    stopBtn.disabled = true;
+    controller = null;
+  }
+}
+
+function stopStream(){
+  if(controller){ controller.abort(); controller=null; }
+  stopBtn.disabled = true; sendBtn.disabled = false;
+}
+
+sendBtn.onclick = sendMessage;
+stopBtn.onclick = stopStream;
+clearBtn.onclick = ()=>{ history=[]; chatEl.innerHTML=''; };
+inputEl.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMessage();}});
+</script>
+</body>
+</html>
