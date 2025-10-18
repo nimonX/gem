@@ -41,7 +41,7 @@ th { background:#161b22; }
 <body>
 <div id="app">
   <h2>Gemini AI</h2>
-  <h3>Get your free API key from: <a href="https://aistudio.google.com/app/apikey" target="_blank">https://aistudio.google.com/app/apikey</a></h3>
+  <h3>Get your API key from: <a href="https://aistudio.google.com/" target="_blank">aistudio.google.com</a></h3>
 
   <div style="margin-bottom:10px; display:flex; align-items:center;">
     <input id="apiKey" type="password" placeholder="Enter Gemini API key">
@@ -79,6 +79,20 @@ const clearBtn = document.getElementById('clearBtn');
 
 let controller = null;
 let history = [];
+
+// --- Load saved API key if available ---
+const savedKey = localStorage.getItem('gemini_api_key');
+if (savedKey) {
+  apiKeyEl.value = savedKey;
+}
+
+// Save API key automatically when user types
+apiKeyEl.addEventListener('change', () => {
+  const key = apiKeyEl.value.trim();
+  if (key) {
+    localStorage.setItem('gemini_api_key', key);
+  }
+});
 
 // Markdown renderer with syntax highlighting
 const md = window.markdownit({
@@ -153,6 +167,9 @@ async function streamGemini(apiKey, modelId, contents, onChunk) {
 async function sendMessage() {
   const apiKey = apiKeyEl.value.trim();
   if (!apiKey) { alert("Enter your Gemini API key"); return; }
+
+  // Save key again in case it was entered manually just now
+  localStorage.setItem('gemini_api_key', apiKey);
 
   let modelId = modelSelectEl.value;
   if (modelId === 'custom') {
