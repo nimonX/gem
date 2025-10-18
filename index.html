@@ -26,9 +26,10 @@ button:disabled{opacity:0.5;cursor:not-allowed}
   padding:10px; height:60vh; overflow-y:auto; margin-top:10px; }
 .user,.model { padding:8px 10px; border-radius:6px; margin-bottom:8px; max-width:90%; }
 .user { background:#1c2c3a; align-self:flex-end; }
-.model { background:#161b22; }
+.model { background:#161b22; align-self:flex-start; }
 .meta { font-size:12px; color:#8b949e; margin-bottom:4px; }
-#apiKey { width:300px; }
+#apiKey, #modelSelect, #customModel { width:300px; margin-right:8px; }
+#customModel { display:none; margin-top:8px; }
 pre { background:#0d1117; border-radius:6px; padding:8px; overflow-x:auto; }
 table { border-collapse: collapse; margin-top:6px; margin-bottom:6px; }
 table, th, td { border:1px solid #30363d; }
@@ -41,11 +42,24 @@ th { background:#161b22; }
 <div id="app">
   <h2>Gemini AI</h2>
   <h3>Get your API key from: <a href="https://aistudio.google.com/" target="_blank">aistudio.google.com</a></h3>
-  <div style="margin-bottom:10px">
+
+  <div style="margin-bottom:10px; display:flex; align-items:center;">
     <input id="apiKey" type="password" placeholder="Enter Gemini API key">
+    <select id="modelSelect">
+      <option value="gemini-2.5-pro" selected>gemini-2.5-pro</option>
+      <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+      <option value="gemini-2.5-flash-lite">gemini-2.5-flash-lite</option>
+      <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+      <option value="gemini-2.0-flash-lite">gemini-2.0-flash-lite</option>
+      <option value="custom">Custom model ID...</option>
+    </select>
     <button id="clearBtn">Clear Chat</button>
   </div>
+
+  <input id="customModel" type="text" placeholder="Enter custom model ID (e.g. gemini-3.0-preview)">
+
   <div id="chat"></div>
+
   <textarea id="input" rows="3" placeholder="Type your message..."></textarea>
   <div style="margin-top:10px">
     <button id="sendBtn">Send</button>
@@ -59,30 +73,34 @@ const inputEl = document.getElementById('input');
 const sendBtn = document.getElementById('sendBtn');
 const stopBtn = document.getElementById('stopBtn');
 const apiKeyEl = document.getElementById('apiKey');
+const modelSelectEl = document.getElementById('modelSelect');
+const customModelEl = document.getElementById('customModel');
 const clearBtn = document.getElementById('clearBtn');
 
 let controller = null;
 let history = [];
 
-/* ---------- Markdown-It setup (safe wrapper) ---------- */
+// Markdown renderer with syntax highlighting
 const md = window.markdownit({
   html: false,
   linkify: true,
   breaks: true,
   highlight: (code, lang) => {
-    // highlight.js might not exist yet — guard it
     if (typeof window.hljs !== "undefined" && lang && hljs.getLanguage(lang)) {
       try {
         const highlighted = hljs.highlight(code, { language: lang, ignoreIllegals: true }).value;
         return `<pre class="hljs"><code>${highlighted}</code></pre>`;
-      } catch (err) { /* fallback below */ }
+      } catch (_) {}
     }
-    // fallback: escaped plain code
     return `<pre class="hljs"><code>${md.utils.escapeHtml(code)}</code></pre>`;
   }
 });
 
-/* ---------- UI helpers ---------- */
+// Show/hide custom model input
+modelSelectEl.addEventListener('change', () => {
+  customModelEl.style.display = modelSelectEl.value === 'custom' ? 'block' : 'none';
+});
+
 function addMessage(role, text) {
   const div = document.createElement('div');
   div.className = role === 'user' ? 'user' : 'model';
@@ -99,11 +117,10 @@ function addMessage(role, text) {
   return body;
 }
 
-/* ---------- Gemini streaming ---------- */
-async function streamGemini(apiKey, contents, onChunk) {
-  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse";
+async function streamGemini(apiKey, modelId, contents, onChunk) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:streamGenerateContent?alt=sse`;
   controller = new AbortController();
-  const resp = await fetch(url + "&key=" + encodeURIComponent(apiKey), {
+  const resp = await fetch(url + `&key=${encodeURIComponent(apiKey)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ contents }),
@@ -128,15 +145,21 @@ async function streamGemini(apiKey, contents, onChunk) {
         const data = JSON.parse(json);
         const parts = data.candidates?.[0]?.content?.parts;
         if (parts) for (const p of parts) if (p.text) onChunk(p.text);
-      } catch { /* ignore partial JSON */ }
+      } catch {}
     }
   }
 }
 
-/* ---------- Send & handle streaming ---------- */
 async function sendMessage() {
   const apiKey = apiKeyEl.value.trim();
   if (!apiKey) { alert("Enter your Gemini API key"); return; }
+
+  let modelId = modelSelectEl.value;
+  if (modelId === 'custom') {
+    modelId = customModelEl.value.trim();
+    if (!modelId) { alert("Enter custom model ID"); return; }
+  }
+
   const text = inputEl.value.trim();
   if (!text) return;
 
@@ -150,12 +173,12 @@ async function sendMessage() {
   stopBtn.disabled = false;
 
   try {
-    await streamGemini(apiKey, history, chunk => {
+    await streamGemini(apiKey, modelId, history, chunk => {
       full += chunk;
-      modelBody.textContent = full; // plain text during stream
+      modelBody.textContent = full;
       chatEl.scrollTop = chatEl.scrollHeight;
     });
-    modelBody.innerHTML = md.render(full); // final Markdown render
+    modelBody.innerHTML = md.render(full);
     history.push({ role: "model", parts: [{ text: full }] });
   } catch (err) {
     modelBody.textContent = "[Error] " + err.message;
@@ -166,7 +189,6 @@ async function sendMessage() {
   }
 }
 
-/* ---------- Controls ---------- */
 function stopStream() {
   if (controller) controller.abort();
   controller = null;
