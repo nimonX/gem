@@ -11,26 +11,66 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css">
 
 <style>
+html, body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 body {
   font-family: system-ui, sans-serif;
   background:#0d1117; color:#e6edf3; margin:0; padding:0;
   display:flex; flex-direction:column; align-items:center;
 }
-#app { max-width:800px; width:100%; padding:20px; }
-textarea { width:100%; background:#161b22; color:#e6edf3;
-  border:1px solid #30363d; border-radius:8px; padding:10px; resize:vertical; }
-button { background:#238636; border:none; color:#fff; padding:8px 12px;
-  border-radius:6px; cursor:pointer; }
-button:disabled{opacity:0.5;cursor:not-allowed}
-#chat { background:#0d1117; border:1px solid #30363d; border-radius:8px;
-  padding:10px; height:60vh; overflow-y:auto; margin-top:10px; }
-.user,.model { padding:8px 10px; border-radius:6px; margin-bottom:8px; max-width:90%; }
+
+#app {
+  max-width:800px;
+  width:100%;
+  padding:20px;
+  box-sizing:border-box;
+}
+
+textarea, input, select, button, #chat {
+  box-sizing:border-box;
+  max-width:100%;
+}
+
+textarea {
+  width:100%;
+  display:block;
+  background:#161b22; color:#e6edf3;
+  border:1px solid #30363d; border-radius:8px; padding:10px; resize:vertical;
+}
+
+button {
+  background:#238636; border:none; color:#fff; padding:8px 12px;
+  border-radius:6px; cursor:pointer;
+}
+button:disabled { opacity:0.5; cursor:not-allowed; }
+
+#chat {
+  background:#0d1117; border:1px solid #30363d; border-radius:8px;
+  padding:10px; height:60vh; overflow-y:auto; margin-top:10px;
+}
+
+.user,.model {
+  padding:8px 10px; border-radius:6px; margin-bottom:8px; max-width:90%;
+}
 .user { background:#1c2c3a; align-self:flex-end; }
 .model { background:#161b22; align-self:flex-start; }
 .meta { font-size:12px; color:#8b949e; margin-bottom:4px; }
-#apiKey, #modelSelect, #customModel { width:300px; margin-right:8px; }
-#customModel { display:none; margin-top:8px; }
-pre { background:#0d1117; border-radius:6px; padding:8px; overflow-x:auto; }
+
+#apiKey, #modelSelect, #customModel {
+  width:300px; margin-right:8px;
+}
+
+#customModel {
+  display:none; margin-top:8px;
+}
+
+pre {
+  background:#0d1117; border-radius:6px; padding:8px; overflow-x:auto;
+}
+
 table { border-collapse: collapse; margin-top:6px; margin-bottom:6px; }
 table, th, td { border:1px solid #30363d; }
 th, td { padding:6px 10px; }
@@ -69,13 +109,43 @@ input:checked + .slider:before {
   transform:translateX(22px);
 }
 label.toggleLabel { font-size:14px; margin-left:6px; vertical-align:middle; }
+
+/* Mobile fix */
+@media (max-width: 600px) {
+  #app { padding:10px; }
+
+  input, select {
+    width:100% !important;
+    margin-right:0 !important;
+  }
+
+  #apiKey, #modelSelect, #customModel {
+    width:100% !important;
+  }
+
+  div[style*="display:flex"] {
+    flex-direction:column;
+    align-items:stretch;
+  }
+
+  #chat {
+    height:70vh;
+  }
+
+  footer {
+    font-size:12px;
+    padding:10px;
+  }
+}
+
 </style>
 </head>
 
 <body>
 <div id="app">
   <h2>Gemini AI</h2>
-  <h3>Get your API key from: <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com/app/apikey</a></h3>
+  <h3 style="font-style: italic; font-size:16px; color:#eeeeee;">Chat with Gemini in a very simple interface</h3>
+  <p style="font-size:13px; color:#8b949e;">Get your free API key from: <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a></p>
 
   <div style="margin-bottom:10px; display:flex; align-items:center; flex-wrap:wrap; gap:8px;">
     <input id="apiKey" type="password" placeholder="Enter Gemini API key">
@@ -87,7 +157,7 @@ label.toggleLabel { font-size:14px; margin-left:6px; vertical-align:middle; }
       <option value="gemini-2.0-flash-lite">gemini-2.0-flash-lite</option>
       <option value="custom">Custom model ID...</option>
     </select>
-    <button id="clearBtn">Clear Chat</button>
+    <input id="customModel" type="text" placeholder="Enter custom model ID (e.g. gemini-3.0-preview)">
     <div>
       <label class="switch">
         <input type="checkbox" id="newlineToggle">
@@ -97,7 +167,7 @@ label.toggleLabel { font-size:14px; margin-left:6px; vertical-align:middle; }
     </div>
   </div>
 
-  <input id="customModel" type="text" placeholder="Enter custom model ID (e.g. gemini-3.0-preview)">
+  <button id="clearBtn">Clear Chat</button>
 
   <div id="chat"></div>
 
@@ -118,7 +188,7 @@ label.toggleLabel { font-size:14px; margin-left:6px; vertical-align:middle; }
     <a href="https://github.com/nimonX/gem" target="_blank" style="color:#58a6ff;">
       GitHub: @nimonX/gem
     </a>
-    &nbsp;•&nbsp; 2025
+    &nbsp;•&nbsp; © 2025
   </p>
 </footer>
 
@@ -243,18 +313,19 @@ async function sendMessage() {
   history.push({ role: "user", parts: [{ text }] });
   inputEl.value = "";
 
-  const modelBody = addMessage("model", "");
+  const modelBody = addMessage("model", "*Generating...*");
   let full = "";
   sendBtn.disabled = true;
   stopBtn.disabled = false;
 
   try {
     await streamGemini(apiKey, modelId, history, chunk => {
+      if (full === "") modelBody.textContent = ""; // clear "Generating..." when first chunk arrives
       full += chunk;
       modelBody.textContent = full;
       chatEl.scrollTop = chatEl.scrollHeight;
     });
-    modelBody.innerHTML = md.render(full);
+    modelBody.innerHTML = md.render(full || "_No response received._");
     history.push({ role: "model", parts: [{ text: full }] });
   } catch (err) {
     modelBody.textContent = "[Error] " + err.message;
@@ -264,6 +335,7 @@ async function sendMessage() {
     controller = null;
   }
 }
+
 
 function stopStream() {
   if (controller) controller.abort();
