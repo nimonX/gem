@@ -1,132 +1,262 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gemini Image Generator Chat</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        #chat-container { border: 1px solid #ccc; padding: 10px; height: 400px; overflow-y: scroll; margin-bottom: 10px; }
-        .message { margin-bottom: 10px; padding: 10px; border-radius: 5px; }
-        .user { background-color: #e0f7fa; text-align: right; }
-        .ai { background-color: #f1f8e9; text-align: left; }
-        .ai img { max-width: 100%; height: auto; margin-top: 10px; }
-        #input-container { display: flex; }
-        #prompt-input { flex: 1; padding: 10px; }
-        button { padding: 10px; margin-left: 5px; }
-        #api-key-container { margin-bottom: 10px; }
-    </style>
+<meta charset="UTF-8">
+<title>Gemini Image Generator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+
+<!-- Markdown & Syntax Highlighting -->
+<script src="https://cdn.jsdelivr.net/npm/markdown-it@14.0.0/dist/markdown-it.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/common.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css">
+
+<style>
+html, body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  font-family: system-ui, sans-serif;
+  background:#0d1117; color:#e6edf3; margin:0; padding:0;
+  display:flex; flex-direction:column; align-items:center;
+}
+
+#app {
+  max-width:800px;
+  width:100%;
+  padding:20px;
+  box-sizing:border-box;
+}
+
+textarea, input, button, #chat {
+  box-sizing:border-box;
+  max-width:100%;
+}
+
+textarea {
+  width:100%;
+  display:block;
+  background:#161b22; color:#e6edf3;
+  border:1px solid #30363d; border-radius:8px; padding:10px; resize:vertical;
+}
+
+button {
+  background:#238636; border:none; color:#fff; padding:8px 12px;
+  border-radius:6px; cursor:pointer;
+}
+button:disabled { opacity:0.5; cursor:not-allowed; }
+
+#chat {
+  background:#0d1117; border:1px solid #30363d; border-radius:8px;
+  padding:10px; height:60vh; overflow-y:auto; margin-top:10px;
+}
+
+.user,.model {
+  padding:8px 10px; border-radius:6px; margin-bottom:8px; max-width:90%;
+}
+.user { background:#1c2c3a; align-self:flex-end; }
+.model { background:#161b22; align-self:flex-start; }
+.model img { max-width: 100%; height: auto; display: block; margin-top: 10px; }
+.meta { font-size:12px; color:#8b949e; margin-bottom:4px; }
+
+#apiKey {
+  width:300px; margin-right:8px;
+}
+
+pre {
+  background:#0d1117; border-radius:6px; padding:8px; overflow-x:auto;
+}
+
+table { border-collapse: collapse; margin-top:6px; margin-bottom:6px; }
+table, th, td { border:1px solid #30363d; }
+th, td { padding:6px 10px; }
+th { background:#161b22; }
+
+/* Mobile fix */
+@media (max-width: 600px) {
+  #app { padding:10px; }
+
+  input {
+    width:100% !important;
+    margin-right:0 !important;
+  }
+
+  #apiKey {
+    width:100% !important;
+  }
+
+  div[style*="display:flex"] {
+    flex-direction:column;
+    align-items:stretch;
+  }
+
+  #chat {
+    height:70vh;
+  }
+}
+
+</style>
 </head>
+
 <body>
-    <h1>Gemini Image Generator Chat</h1>
-    <div id="api-key-container">
-        <label for="api-key">Enter your API Key:</label>
-        <input type="text" id="api-key" placeholder="AIzaSy...">
-        <button onclick="saveApiKey()">Save API Key</button>
-    </div>
-    <div id="chat-container"></div>
-    <div id="input-container">
-        <input type="text" id="prompt-input" placeholder="Enter your prompt...">
-        <button onclick="sendPrompt()">Send</button>
-    </div>
+<div id="app">
+  <h2>Gemini Image Generator</h2>
+  <h3 style="font-style: italic; font-size:16px; color:#eeeeee;">Generate images with Gemini</h3>
+  <p style="font-size:13px; color:#8b949e;">Get your free API key from: <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a></p>
 
-    <script>
-        const API_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent';
-        let apiKey = localStorage.getItem('geminiApiKey') || '';
+  <div style="margin-bottom:10px; display:flex; align-items:center; flex-wrap:wrap; gap:8px;">
+    <input id="apiKey" type="password" placeholder="Enter Gemini API key">
+  </div>
 
-        // Load saved API key
-        document.getElementById('api-key').value = apiKey;
+  <button id="clearBtn">Clear Chat</button>
 
-        function saveApiKey() {
-            apiKey = document.getElementById('api-key').value;
-            localStorage.setItem('geminiApiKey', apiKey);
-            alert('API Key saved!');
+  <div id="chat"></div>
+
+  <textarea id="input" rows="3" placeholder="Type your prompt for image generation..."></textarea>
+  <div style="margin-top:10px">
+    <button id="sendBtn">Generate</button>
+  </div>
+</div>
+
+<script>
+const chatEl = document.getElementById('chat');
+const inputEl = document.getElementById('input');
+const sendBtn = document.getElementById('sendBtn');
+const apiKeyEl = document.getElementById('apiKey');
+const clearBtn = document.getElementById('clearBtn');
+const modelId = 'gemini-2.0-flash-preview-image-generation';
+
+// --- Load saved API key ---
+const savedKey = localStorage.getItem('gemini_api_key');
+if (savedKey) apiKeyEl.value = savedKey;
+
+// Save API key when changed
+apiKeyEl.addEventListener('change', () => {
+  const key = apiKeyEl.value.trim();
+  if (key) localStorage.setItem('gemini_api_key', key);
+});
+
+// Markdown renderer
+const md = window.markdownit({
+  html: false,
+  linkify: true,
+  breaks: true,
+  highlight: (code, lang) => {
+    if (typeof window.hljs !== "undefined" && lang && hljs.getLanguage(lang)) {
+      try {
+        const highlighted = hljs.highlight(code, { language: lang, ignoreIllegals: true }).value;
+        return `<pre class="hljs"><code>${highlighted}</code></pre>`;
+      } catch (_) {}
+    }
+    return `<pre class="hljs"><code>${md.utils.escapeHtml(code)}</code></pre>`;
+  }
+});
+
+function addMessage(role, text) {
+  const div = document.createElement('div');
+  div.className = role === 'user' ? 'user' : 'model';
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  meta.textContent = role === 'user' ? 'You' : 'Gemini';
+  div.appendChild(meta);
+  const body = document.createElement('div');
+  body.className = 'body';
+  body.innerHTML = md.render(text || '');
+  div.appendChild(body);
+  chatEl.appendChild(div);
+  chatEl.scrollTop = chatEl.scrollHeight;
+  return div;  // Return the entire message div for appending image/button
+}
+
+async function sendMessage() {
+  const apiKey = apiKeyEl.value.trim();
+  if (!apiKey) { alert("Enter your Gemini API key"); return; }
+  localStorage.setItem('gemini_api_key', apiKey);
+
+  const text = inputEl.value.trim();
+  if (!text) return;
+
+  addMessage("user", text);
+  inputEl.value = "";
+
+  const modelDiv = addMessage("model", "*Generating...*");
+  const modelBody = modelDiv.querySelector('.body');
+  sendBtn.disabled = true;
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const bodyObj = {
+      contents: [
+        {
+          parts: [{ text }]
         }
+      ],
+      generationConfig: {
+        responseModalities: ["TEXT", "IMAGE"]
+      }
+    };
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(bodyObj)
+    });
+    if (!resp.ok) throw new Error(await resp.text());
 
-        async function sendPrompt() {
-            if (!apiKey) {
-                alert('Please enter and save your API Key first!');
-                return;
-            }
+    const data = await resp.json();
+    const parts = data.candidates?.[0]?.content?.parts || [];
+    let fullText = '';
+    let imageSrc = null;
+    let mimeType = 'image/png';
 
-            const prompt = document.getElementById('prompt-input').value;
-            if (!prompt) return;
+    parts.forEach(part => {
+      if (part.text) fullText += part.text;
+      if (part.inlineData) {
+        mimeType = part.inlineData.mimeType || 'image/png';
+        imageSrc = `data:${mimeType};base64,${part.inlineData.data}`;
+      }
+    });
 
-            // Display user message
-            appendMessage('user', prompt);
+    modelBody.innerHTML = md.render(fullText || '_No response received._');
 
-            // Clear input
-            document.getElementById('prompt-input').value = '';
+    if (imageSrc) {
+      const img = document.createElement('img');
+      img.src = imageSrc;
+      modelDiv.appendChild(img);
 
-            try {
-                const response = await fetch(API_ENDPOINT, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-goog-api-key': apiKey
-                    },
-                    body: JSON.stringify({
-                        contents: [{
-                            parts: [{ text: prompt }]
-                        }]
-                    })
-                });
+      const downloadBtn = document.createElement('button');
+      downloadBtn.textContent = 'Download Image';
+      downloadBtn.style.marginTop = '10px';
+      downloadBtn.onclick = () => {
+        const a = document.createElement('a');
+        a.href = imageSrc;
+        a.download = `generated-image.${mimeType.split('/')[1]}`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      };
+      modelDiv.appendChild(downloadBtn);
+    }
 
-                if (!response.ok) {
-                    throw new Error(`API error: ${response.statusText}`);
-                }
+    chatEl.scrollTop = chatEl.scrollHeight;
+  } catch (err) {
+    modelBody.textContent = "[Error] " + err.message;
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
 
-                const data = await response.json();
+sendBtn.onclick = sendMessage;
+clearBtn.onclick = () => { chatEl.innerHTML = ""; };
 
-                // Extract text and image from response
-                const parts = data.candidates[0].content.parts;
-                const text = parts[0]?.text || 'No text generated.';
-                const imageData = parts[1]?.inlineData?.data;
-                const mimeType = parts[1]?.inlineData?.mimeType || 'image/png';
-
-                // Display AI message with text
-                appendMessage('ai', text);
-
-                if (imageData) {
-                    // Create data URL for image
-                    const imageSrc = `data:${mimeType};base64,${imageData}`;
-
-                    // Append image to the last AI message
-                    const chatContainer = document.getElementById('chat-container');
-                    const lastMessage = chatContainer.lastChild;
-                    const img = document.createElement('img');
-                    img.src = imageSrc;
-                    lastMessage.appendChild(img);
-
-                    // Add download button
-                    const downloadBtn = document.createElement('button');
-                    downloadBtn.textContent = 'Download Image';
-                    downloadBtn.onclick = () => downloadImage(imageSrc, 'generated-image.png');
-                    lastMessage.appendChild(downloadBtn);
-                }
-
-            } catch (error) {
-                appendMessage('ai', `Error: ${error.message}`);
-            }
-        }
-
-        function appendMessage(role, content) {
-            const chatContainer = document.getElementById('chat-container');
-            const messageDiv = document.createElement('div');
-            messageDiv.classList.add('message', role);
-            messageDiv.textContent = content;
-            chatContainer.appendChild(messageDiv);
-            chatContainer.scrollTop = chatContainer.scrollHeight;
-        }
-
-        function downloadImage(src, filename) {
-            const a = document.createElement('a');
-            a.href = src;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-        }
-    </script>
+// Enter to send
+inputEl.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+</script>
 </body>
 </html>
