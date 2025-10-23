@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini Image Generator Chat</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #chat-container { border: 1px solid #ccc; padding: 10px; height: 400px; overflow-y: scroll; margin-bottom: 10px; }
+        .message { margin-bottom: 10px; padding: 10px; border-radius: 5px; }
+        .user { background-color: #e0f7fa; text-align: right; }
+        .ai { background-color: #f1f8e9; text-align: left; }
+        .ai img { max-width: 100%; height: auto; margin-top: 10px; }
+        #input-container { display: flex; }
+        #prompt-input { flex: 1; padding: 10px; }
+        button { padding: 10px; margin-left: 5px; }
+        #api-key-container { margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <h1>Gemini Image Generator Chat</h1>
+    <div id="api-key-container">
+        <label for="api-key">Enter your API Key:</label>
+        <input type="text" id="api-key" placeholder="AIzaSy...">
+        <button onclick="saveApiKey()">Save API Key</button>
+    </div>
+    <div id="chat-container"></div>
+    <div id="input-container">
+        <input type="text" id="prompt-input" placeholder="Enter your prompt...">
+        <button onclick="sendPrompt()">Send</button>
+    </div>
+
+    <script>
+        const API_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent';
+        let apiKey = localStorage.getItem('geminiApiKey') || '';
+
+        // Load saved API key
+        document.getElementById('api-key').value = apiKey;
+
+        function saveApiKey() {
+            apiKey = document.getElementById('api-key').value;
+            localStorage.setItem('geminiApiKey', apiKey);
+            alert('API Key saved!');
+        }
+
+        async function sendPrompt() {
+            if (!apiKey) {
+                alert('Please enter and save your API Key first!');
+                return;
+            }
+
+            const prompt = document.getElementById('prompt-input').value;
+            if (!prompt) return;
+
+            // Display user message
+            appendMessage('user', prompt);
+
+            // Clear input
+            document.getElementById('prompt-input').value = '';
+
+            try {
+                const response = await fetch(API_ENDPOINT, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-goog-api-key': apiKey
+                    },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [{ text: prompt }]
+                        }]
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API error: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+
+                // Extract text and image from response
+                const parts = data.candidates[0].content.parts;
+                const text = parts[0]?.text || 'No text generated.';
+                const imageData = parts[1]?.inlineData?.data;
+                const mimeType = parts[1]?.inlineData?.mimeType || 'image/png';
+
+                // Display AI message with text
+                appendMessage('ai', text);
+
+                if (imageData) {
+                    // Create data URL for image
+                    const imageSrc = `data:${mimeType};base64,${imageData}`;
+
+                    // Append image to the last AI message
+                    const chatContainer = document.getElementById('chat-container');
+                    const lastMessage = chatContainer.lastChild;
+                    const img = document.createElement('img');
+                    img.src = imageSrc;
+                    lastMessage.appendChild(img);
+
+                    // Add download button
+                    const downloadBtn = document.createElement('button');
+                    downloadBtn.textContent = 'Download Image';
+                    downloadBtn.onclick = () => downloadImage(imageSrc, 'generated-image.png');
+                    lastMessage.appendChild(downloadBtn);
+                }
+
+            } catch (error) {
+                appendMessage('ai', `Error: ${error.message}`);
+            }
+        }
+
+        function appendMessage(role, content) {
+            const chatContainer = document.getElementById('chat-container');
+            const messageDiv = document.createElement('div');
+            messageDiv.classList.add('message', role);
+            messageDiv.textContent = content;
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function downloadImage(src, filename) {
+            const a = document.createElement('a');
+            a.href = src;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+    </script>
+</body>
+</html>
