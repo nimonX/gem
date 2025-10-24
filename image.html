@@ -97,10 +97,101 @@ th { background:#161b22; }
   }
 }
 
+
+/* --- Top Bar --- */
+.topbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 56px;
+  background: #0d1117;
+  border-bottom: 1px solid #30363d;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 16px;
+  box-sizing: border-box;
+  z-index: 1000;
+}
+.topbar .logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #e6edf3;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 18px;
+}
+.topbar .logo img {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+}
+.topbar #menuBtn {
+  background: none;
+  border: none;
+  color: #e6edf3;
+  font-size: 22px;
+  cursor: pointer;
+}
+.dropdown {
+  display: none;
+  position: absolute;
+  right: 16px;
+  top: 56px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+  flex-direction: column;
+  min-width: 180px;
+}
+.dropdown a {
+  color: #e6edf3;
+  text-decoration: none;
+  padding: 10px 14px;
+  display: block;
+}
+.dropdown a:hover {
+  background: #238636;
+}
+@media (min-width: 700px) {
+  #menuBtn { display: none; }
+  .dropdown {
+    display: flex !important;
+    position: static;
+    flex-direction: row;
+    background: none;
+    border: none;
+    box-shadow: none;
+  }
+  .dropdown a { padding: 0 12px; }
+  .dropdown a:hover { background: none; text-decoration: underline; }
+}
+body { padding-top: 56px !important; }
+
 </style>
 </head>
 
 <body>
+
+<header class="topbar">
+  <div class="left">
+    <a href="index.html" class="logo">
+      <img src="favicon.ico" alt="N logo">
+      <span>nimon.site</span>
+    </a>
+  </div>
+  <div class="right">
+    <button id="menuBtn" aria-label="Menu">☰</button>
+    <div id="dropdownMenu" class="dropdown">
+      <a href="index.html">💬 Chat</a>
+      <a href="image.html">🖼️ Image Generator</a>
+    </div>
+  </div>
+</header>
+
 <div id="app">
   <h2>Gemini Image Generator</h2>
   <h3 style="font-style: italic; font-size:16px; color:#eeeeee;">Generate images with Gemini</h3>
@@ -258,5 +349,33 @@ inputEl.addEventListener("keydown", e => {
   }
 });
 </script>
+
+<footer style="margin-top:30px; font-size:13px; color:#8b949e; text-align:center; border-top:1px solid #30363d; padding-top:15px; margin-top:40px;">
+  <p><strong>Privacy:</strong> This web app runs entirely in your browser. 
+  Your API key and chat history are stored locally using <code>localStorage</code> 
+  and are never sent anywhere except directly to Google's Gemini API.</p>
+  <p>
+    <a href="https://github.com/nimonX/gem" target="_blank" style="color:#58a6ff;">
+      GitHub: @nimonX/gem
+    </a> • © 2025
+  </p>
+</footer>
+
+
+<script>
+const menuBtn = document.getElementById('menuBtn');
+const dropdown = document.getElementById('dropdownMenu');
+if (menuBtn && dropdown) {
+  menuBtn.addEventListener('click', () => {
+    dropdown.style.display = dropdown.style.display === 'flex' ? 'none' : 'flex';
+  });
+  window.addEventListener('click', (e) => {
+    if (!menuBtn.contains(e.target) && !dropdown.contains(e.target)) {
+      dropdown.style.display = 'none';
+    }
+  });
+}
+</script>
+
 </body>
 </html>
