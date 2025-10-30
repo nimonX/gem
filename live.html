@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Gemini Voice Chat</title>
+  <style>
+    body { font-family: sans-serif; background:#111; color:#eee; text-align:center; padding:20px; }
+    button { padding:1em 2em; font-size:1em; margin:10px; border:none; border-radius:8px; background:#4a90e2; color:white; cursor:pointer; }
+    input { padding:0.5em; width:300px; border-radius:6px; border:none; margin:5px; }
+    pre { text-align:left; width:90%; margin:1em auto; background:#222; padding:1em; border-radius:10px; overflow:auto; }
+  </style>
+</head>
+<body>
+  <h2>Gemini Voice Chat (Record → Send → Reply)</h2>
+  <input id="apiKey" placeholder="Enter your API key">
+  <button id="saveKey">Save Key</button>
+  <br>
+  <button id="record">🎙️ Record</button>
+  <pre id="log"></pre>
+
+  <script>
+    const log = msg => document.getElementById('log').textContent += msg + "\n";
+
+    // Load saved key
+    const apiInput = document.getElementById('apiKey');
+    const savedKey = localStorage.getItem('GEMINI_KEY');
+    if (savedKey) apiInput.value = savedKey;
+
+    document.getElementById('saveKey').onclick = () => {
+      localStorage.setItem('GEMINI_KEY', apiInput.value.trim());
+      log('API key saved.');
+    };
+
+    const recordBtn = document.getElementById('record');
+    let mediaRecorder, chunks = [];
+
+    recordBtn.onclick = async () => {
+      const apiKey = localStorage.getItem('GEMINI_KEY');
+      if (!apiKey) return alert('Enter and save your API key first.');
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunks = [];
+      mediaRecorder = new MediaRecorder(stream);
+      log('Recording... speak now.');
+      mediaRecorder.start();
+
+      recordBtn.textContent = '⏹️ Stop';
+      recordBtn.onclick = stopRecording;
+
+      mediaRecorder.ondataavailable = e => chunks.push(e.data);
+    };
+
+    async function stopRecording() {
+      mediaRecorder.stop();
+      recordBtn.textContent = '🎙️ Record';
+      recordBtn.onclick = async () => {
+        const apiKey = localStorage.getItem('GEMINI_KEY');
+        if (!apiKey) return alert('Enter and save your API key first.');
+        startRecording();
+      };
+      log('Recording stopped. Sending audio...');
+
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        const arrayBuffer = await blob.arrayBuffer();
+        const base64 = await arrayBufferToBase64(arrayBuffer);
+
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-native-audio-preview-09-2025:generateContent?key=${localStorage.getItem('GEMINI_KEY')}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [
+                {
+                  role: 'user',
+                  parts: [
+                    {
+                      inlineData: {
+                        mimeType: 'audio/webm',
+                        data: base64
+                      }
+                    }
+                  ]
+                }
+              ],
+              responseModalities: ['AUDIO'],
+              systemInstruction: "You are a friendly assistant."
+            })
+          }
+        );
+
+        if (!response.ok) {
+          log('Error: ' + response.statusText);
+          return;
+        }
+
+        const data = await response.json();
+        const audioData = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        const textReply = data?.candidates?.[0]?.content?.parts?.find(p => p.text)?.text;
+        if (textReply) log("AI: " + textReply);
+
+        if (audioData) {
+          log('Playing AI response...');
+          playBase64Audio(audioData);
+        } else {
+          log('No audio received.');
+        }
+      };
+    }
+
+    async function arrayBufferToBase64(buffer) {
+      let binary = '';
+      const bytes = new Uint8Array(buffer);
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        const sub = bytes.subarray(i, i + chunk);
+        binary += String.fromCharCode.apply(null, sub);
+      }
+      return btoa(binary);
+    }
+
+    function playBase64Audio(base64) {
+      const audio = new Audio("data:audio/wav;base64," + base64);
+      audio.play();
+    }
+  </script>
+</body>
+</html>
