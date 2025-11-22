@@ -316,6 +316,9 @@ const newlineToggle = document.getElementById('newlineToggle');
 let controller = null;
 let history = [];
 
+// --- LocalStorage keys ---
+const STORAGE_KEY_HISTORY = 'gemini_chat_history';
+
 // --- Load saved API key ---
 const savedKey = localStorage.getItem('gemini_api_key');
 if (savedKey) apiKeyEl.value = savedKey;
@@ -324,18 +327,17 @@ if (savedKey) apiKeyEl.value = savedKey;
 apiKeyEl.addEventListener('change', () => {
   const key = apiKeyEl.value.trim();
   if (key) localStorage.setItem('gemini_api_key', key);
+  else localStorage.removeItem('gemini_api_key');
 });
 
 // --- Load saved newline mode ---
 const savedNewline = localStorage.getItem('enter_newline') === 'true';
 newlineToggle.checked = savedNewline;
-
-// Save newline mode when toggled
 newlineToggle.addEventListener('change', () => {
   localStorage.setItem('enter_newline', newlineToggle.checked);
 });
 
-// Markdown renderer
+// --- Markdown renderer ---
 const md = window.markdownit({
   html: false,
   linkify: true,
@@ -356,6 +358,45 @@ modelSelectEl.addEventListener('change', () => {
   customModelEl.style.display = modelSelectEl.value === 'custom' ? 'block' : 'none';
 });
 
+// --- Save history to localStorage ---
+function saveHistory() {
+  localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(history));
+}
+
+// --- Load history from localStorage and render it ---
+function loadHistory() {
+  const saved = localStorage.getItem(STORAGE_KEY_HISTORY);
+  if (!saved) return;
+
+  try {
+    history = JSON.parse(saved);
+    chatEl.innerHTML = ''; // clear current view
+    history.forEach(msg => {
+      if (msg.role === 'user' || msg.role === 'model') {
+        const text = msg.parts?.[0]?.text || '';
+        const div = document.createElement('div');
+        div.className = msg.role === 'user' ? 'user' : 'model';
+
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        meta.textContent = msg.role === 'user' ? 'You' : 'Gemini';
+        div.appendChild(meta);
+
+        const body = document.createElement('div');
+        body.className = 'body';
+        body.innerHTML = md.render(text);
+        div.appendChild(body);
+
+        chatEl.appendChild(div);
+      }
+    });
+    chatEl.scrollTop = chatEl.scrollHeight;
+  } catch (e) {
+    console.error("Failed to load chat history", e);
+  }
+}
+
+// --- Add message (and automatically save) ---
 function addMessage(role, text) {
   const div = document.createElement('div');
   div.className = role === 'user' ? 'user' : 'model';
@@ -369,9 +410,25 @@ function addMessage(role, text) {
   div.appendChild(body);
   chatEl.appendChild(div);
   chatEl.scrollTop = chatEl.scrollHeight;
+
+  // Update history + save
+  if (role === 'user') {
+    history.push({ role: "user", parts: [{ text }] });
+  } else {
+    // replace the last model entry if it exists (in case we overwrote it during streaming)
+    const last = history[history.length - 1];
+    if (last && last.role === 'model') {
+      last.parts = [{ text }];
+    } else {
+      history.push({ role: "model", parts: [{ text }] });
+    }
+  }
+  saveHistory();
+
   return body;
 }
 
+// --- Streaming function unchanged (except it now uses addMessage which saves) ---
 async function streamGemini(apiKey, modelId, contents, onChunk) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelId)}:streamGenerateContent?alt=sse`;
   controller = new AbortController();
@@ -420,7 +477,6 @@ async function sendMessage() {
   if (!text) return;
 
   addMessage("user", text);
-  history.push({ role: "user", parts: [{ text }] });
   inputEl.value = "";
 
   const modelBody = addMessage("model", "*Generating...*");
@@ -430,13 +486,20 @@ async function sendMessage() {
 
   try {
     await streamGemini(apiKey, modelId, history, chunk => {
-      if (full === "") modelBody.textContent = ""; // clear "Generating..." when first chunk arrives
+      if (full === "") modelBody.innerHTML = ""; // clear "Generating..."
       full += chunk;
-      modelBody.textContent = full;
+      modelBody.innerHTML = md.render(full);
       chatEl.scrollTop = chatEl.scrollHeight;
     });
+
+    // Final save with complete response
     modelBody.innerHTML = md.render(full || "_No response received._");
-    history.push({ role: "model", parts: [{ text: full }] });
+    const last = history[history.length - 1];
+    if (last && last.role === 'model') {
+      last.parts = [{ text: full }];
+    }
+    saveHistory();
+
   } catch (err) {
     modelBody.textContent = "[Error] " + err.message;
   } finally {
@@ -446,7 +509,6 @@ async function sendMessage() {
   }
 }
 
-
 function stopStream() {
   if (controller) controller.abort();
   controller = null;
@@ -454,20 +516,27 @@ function stopStream() {
   sendBtn.disabled = false;
 }
 
-sendBtn.onclick = sendMessage;
-stopBtn.onclick = stopStream;
-clearBtn.onclick = () => { history = []; chatEl.innerHTML = ""; };
+// --- Clear chat with confirmation ---
+clearBtn.onclick = () => {
+  if (confirm("Are you sure you want to clear the entire chat history? This cannot be undone.")) {
+    history = [];
+    chatEl.innerHTML = "";
+    localStorage.removeItem(STORAGE_KEY_HISTORY);
+  }
+};
 
-// Enter key behavior depends on toggle
+// Enter key behavior
 inputEl.addEventListener("keydown", e => {
   if (!newlineToggle.checked && e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
     sendMessage();
   }
 });
-</script>
 
-<script>
+// --- Load chat history when page loads ---
+window.addEventListener('load', loadHistory);
+
+// Menu toggle script (unchanged)
 const menuBtn = document.getElementById('menuBtn');
 const dropdown = document.getElementById('dropdownMenu');
 if (menuBtn && dropdown) {
@@ -481,6 +550,9 @@ if (menuBtn && dropdown) {
   });
 }
 </script>
+
+</body>
+</html>
 
 </body>
 </html>
